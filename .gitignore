@@ -1,0 +1,8 @@
+v3/dist/
+v3/art/
+v3/live/
+/site/
+*.zip
+*.pem
+.env
+__pycache__/
