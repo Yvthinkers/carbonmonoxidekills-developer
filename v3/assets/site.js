@@ -47,10 +47,10 @@ const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelecto
  const u=()=>{const x=+s.value,[c,chip,h,p]=B(x);v.textContent=x;n.style.left=(x/400*100)+'%';
   d.innerHTML=`<span class="chip" style="color:${c}">${chip}</span><h3>${h}</h3><p>${p}</p>`};s.addEventListener('input',u);u()})();
 
-/* State lists: every state leads into the case review with the state filled in */
+/* State lists: the links are in the HTML (one page per state); typing filters them */
 (()=>{const l=$('#slist');if(!l)return;const q=$('#stateq'),n=$('#snone');
- const d=()=>{const t=(q?q.value:'').trim().toLowerCase(),m=STATES.filter(s=>s.toLowerCase().includes(t));
-  l.innerHTML=m.map(s=>`<a href="review.html?state=${encodeURIComponent(s)}">${s}</a>`).join('');if(n)n.hidden=!!m.length};
+ const d=()=>{const t=(q?q.value:'').trim().toLowerCase();let k=0;
+  $$('a',l).forEach(a=>{const m=a.textContent.toLowerCase().includes(t);a.hidden=!m;if(m)k++});if(n)n.hidden=!!k};
  q&&q.addEventListener('input',d);d()})();
 
 /* Case review (concept: answers stay in this browser) */

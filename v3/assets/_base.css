@@ -276,6 +276,8 @@ section{padding-block:140px}
 .states input::placeholder{color:var(--text-3)}
 .slist{columns:3 160px;column-gap:30px;font-size:15.5px}
 .slist a{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);text-decoration:none;break-inside:avoid}
+.slist a[hidden]{display:none}
+.vh{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 .slist a::after{content:"→";color:var(--text-3);transition:transform .2s,color .2s}
 .slist a:hover::after{color:var(--ember-deep);transform:translateX(3px)}
 .none{color:var(--text-3)}
