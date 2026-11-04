@@ -35,6 +35,8 @@ MEDICAL_PAGES = {'facts', 'symptoms'}
 # The older WordPress sitemap on the same domain (state lawyer pages, posts) stays live.
 WORDPRESS_SITEMAP = f'{SITE}/sitemap_index.xml'
 SITEMAP_FILE = 'sitemap-new.xml'
+# Utility pages: noindex and left out of the sitemap
+NOINDEX_FILES = {'thank-you.html'}
 
 ROOT = Path(__file__).parent
 

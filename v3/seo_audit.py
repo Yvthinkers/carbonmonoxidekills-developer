@@ -117,12 +117,33 @@ def audit_schema(page, doc, canonical):
     return types + [t]
 
 
+def audit_forms(page, doc, build):
+    """Every form posts to a file in the build, and every visible field has a label."""
+    for form in re.findall(r'<form\b[^>]*>.*?</form>', doc, re.S):
+        action = re.search(r'action="([^"]*)"', form)
+        if action and action.group(1).startswith('/') and not (build / action.group(1).lstrip('/')).exists():
+            err(page, f'form posts to {action.group(1)}, which is not in the build')
+        labels = set(re.findall(r'<label for="([^"]+)"', form))
+        for tag in re.findall(r'<(?:input|select|textarea)\b[^>]*>', form):
+            kind = re.search(r'type="([^"]+)"', tag)
+            if kind and kind.group(1) in ('hidden', 'radio', 'checkbox', 'submit'):
+                continue
+            fid = re.search(r'id="([^"]+)"', tag)
+            if not fid or fid.group(1) not in labels:
+                err(page, f'form field without a label: {tag[:60]}')
+
+
 def audit_live(build):
     pages = sorted(build.glob('*.html'))
     titles, descs, canons = {}, {}, {}
     report = []
     for p in pages:
         doc, name = p.read_text(), p.name
+        audit_forms(name, doc, build)
+        if name in seo.NOINDEX_FILES:
+            if 'content="noindex' not in doc:
+                err(name, 'utility page should be noindex')
+            continue
         expected = seo.abs_url('' if name == 'index.html' else name)
         if not doc.startswith('<!doctype html>'):
             err(name, 'missing <!doctype html>')

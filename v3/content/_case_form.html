@@ -1,0 +1,65 @@
+<form class="formcard caseform" id="case-form" method="post" action="/case-review.php">
+  <h2>Tell us what happened</h2>
+  <p class="hint">Free and confidential. Rob’s team reviews every form and calls you back. Fields marked * are required.</p>
+  <p class="formerr" id="cf-error" role="alert" hidden></p>
+
+  <fieldset>
+    <legend>Your details</legend>
+    <div class="fgrid">
+      <div class="field full"><label for="cf-name">Full name *</label><input id="cf-name" name="name" required maxlength="120" autocomplete="name"></div>
+      <div class="field full"><label for="cf-street">Street address *</label><input id="cf-street" name="street" required maxlength="200" autocomplete="street-address"></div>
+      <div class="field"><label for="cf-city">City *</label><input id="cf-city" name="city" required maxlength="100" autocomplete="address-level2"></div>
+      <div class="field"><label for="cf-state">State *</label><select id="cf-state" name="state" required autocomplete="address-level1"><option value="">Choose a state</option>{{STATE_OPTIONS}}</select></div>
+      <div class="field"><label for="cf-zip">ZIP code</label><input id="cf-zip" name="zip" maxlength="10" inputmode="numeric" autocomplete="postal-code"></div>
+      <div class="field"><label for="cf-phone">Telephone *</label><input id="cf-phone" name="phone" type="tel" required maxlength="30" autocomplete="tel"></div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>What happened</legend>
+    <div class="fgrid">
+      <div class="field"><label for="cf-date">When did this happen? *</label><input id="cf-date" name="incident_date" type="date" required></div>
+      <div class="field full"><label for="cf-cause">What do you believe caused the poisoning? *</label><textarea id="cf-cause" name="cause" required maxlength="2000" placeholder="For example: a furnace, boiler, water heater, generator or vehicle exhaust"></textarea></div>
+      <div class="field full"><label for="cf-who">Who do you believe caused the issue?</label><input id="cf-who" name="responsible" maxlength="300" placeholder="For example: landlord, hotel, employer, contractor, manufacturer"></div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Evidence</legend>
+    <div class="fgrid">
+      <div class="field"><label for="cf-ppm">Carbon monoxide reading at the scene (ppm)</label><input id="cf-ppm" name="ppm" type="number" min="0" max="100000" step="1" inputmode="numeric" placeholder="Parts per million"></div>
+      <div class="field"><label for="cf-by">Who took the reading?</label><select id="cf-by" name="reading_by"><option value="">Choose one</option><option>Fire department</option><option>Heating engineer</option><option>Energy company</option><option>Other</option><option>No reading was taken</option></select></div>
+      <div class="field full" id="cf-by-other-wrap" hidden><label for="cf-by-other">Who else took the reading?</label><input id="cf-by-other" name="reading_by_other" maxlength="200"></div>
+      <div class="field full"><label for="cf-evidence">Any other evidence?</label><textarea id="cf-evidence" name="evidence" maxlength="2000" placeholder="For example: alarm photos, inspection or service reports, emails with the landlord"></textarea></div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Medical</legend>
+    <div class="fgrid">
+      <div class="field full" role="radiogroup" aria-labelledby="cf-er-l"><span class="flabel" id="cf-er-l">Did you attend the ER or see a doctor? *</span>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="medical" value="ER" required> ER</label>
+          <label class="choice"><input type="radio" name="medical" value="Doctor"> Doctor</label>
+          <label class="choice"><input type="radio" name="medical" value="Both ER and doctor"> Both</label>
+          <label class="choice"><input type="radio" name="medical" value="No"> No</label>
+        </div>
+      </div>
+      <div class="field full" role="radiogroup" aria-labelledby="cf-blood-l"><span class="flabel" id="cf-blood-l">Was blood work done? *</span>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="blood_test" value="Yes" required> Yes</label>
+          <label class="choice"><input type="radio" name="blood_test" value="No"> No</label>
+          <label class="choice"><input type="radio" name="blood_test" value="Not sure"> Not sure</label>
+        </div>
+      </div>
+      <div class="field" data-blood hidden><label for="cf-cohb">What was the reading?</label><input id="cf-cohb" name="blood_reading" maxlength="60" placeholder="Carboxyhemoglobin (COHb), e.g. 12%"></div>
+      <div class="field" data-blood hidden><label for="cf-delay">How long after the event was the blood work done?</label><select id="cf-delay" name="blood_delay"><option value="">Choose one</option><option>Less than 1 hour</option><option>1 to 3 hours</option><option>3 to 6 hours</option><option>6 to 12 hours</option><option>More than 12 hours</option><option>Not sure</option></select></div>
+    </div>
+  </fieldset>
+
+  <div class="hp" aria-hidden="true"><label for="cf-website">Leave this empty</label><input id="cf-website" name="website" tabindex="-1" autocomplete="off"></div>
+  <input type="hidden" name="started" id="cf-started" value="">
+
+  <label class="consent"><input type="checkbox" name="consent" value="yes" required> I agree that Carbon Monoxide Kills may contact me about this enquiry. Sending this form does not create an attorney–client relationship. *</label>
+  <div class="foot"><small>Alarm sounding or feeling unwell? Leave the building now and call 911.</small><button class="btn btn-ember" type="submit">Send for review <span class="arr">→</span></button></div>
+</form>

@@ -20,6 +20,7 @@ Build: `python3 v3/build.py`
 
 - `dist/`  noindex dev preview (EC2 / dev.carbonmonoxidekills.com)
 - `live/`  production (committed for review): indexable, SEO tags + structured data from `v3/seo.py`,
+  the case review form (`content/_case_form.html` → `server/case-review.php`; set RECIPIENT before go-live),
   `sitemap-new.xml`, `robots.txt`, phone-only CTAs instead of forms.
   It is an overlay on `public_html` next to WordPress: roll back by deleting the added files.
 

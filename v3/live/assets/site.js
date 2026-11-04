@@ -82,3 +82,16 @@ const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelecto
 $$('form.enquiry').forEach(f=>{const st=$('select[name=state]',f);if(st)st.innerHTML='<option value="">Choose a state</option>'+STATES.map(s=>`<option>${s}</option>`).join('');
  f.addEventListener('submit',e=>{e.preventDefault();const bad=$$('[required]',f).find(x=>!x.value.trim());if(bad)return bad.focus();
   f.innerHTML=`<p class="label ember">Received</p><h2 style="margin-top:14px">Thank you.</h2><p class="done" style="margin-top:20px">On the live site this goes straight to Rob’s team, who usually reply the same day and always within 24 hours.</p>`})});
+
+/* Case review form (posts to /case-review.php): conditional fields, server error message, spam timer */
+(()=>{const f=$('#case-form');if(!f)return;
+ $('#cf-started',f).value=Date.now();
+ const by=$('#cf-by',f),other=$('#cf-by-other-wrap',f),blood=$$('[data-blood]',f);
+ const sync=()=>{other.hidden=by.value!=='Other';const yes=($('input[name=blood_test]:checked',f)||{}).value==='Yes';blood.forEach(b=>b.hidden=!yes)};
+ by.addEventListener('change',sync);$$('input[name=blood_test]',f).forEach(r=>r.addEventListener('change',sync));sync();
+ const msg={missing:'Please fill in all required fields.',consent:'Please tick the box to agree that we may contact you.',phone:'Please check the telephone number.',
+  date:'Please check the date of the incident.',ppm:'The reading should be a number of parts per million.',rate:'Too many forms sent from this connection. Please call us on 1-888-414-8680.',
+  server:'Sorry, the form could not be sent. Please call us on 1-888-414-8680.'};
+ const err=new URLSearchParams(location.search).get('error'),box=$('#cf-error',f);
+ if(err&&msg[err]){box.textContent=msg[err];box.hidden=false}
+ f.addEventListener('submit',e=>{if(!f.checkValidity()){e.preventDefault();f.reportValidity()}})})();

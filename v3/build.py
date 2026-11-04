@@ -42,6 +42,7 @@ PAGES = {
  'medical': ('medical-professionals.html', 'For medical professionals', 'Recognizing CO poisoning and reaching an expert.'),
  'contact': ('contact.html', 'Contact', 'Call, email or send a message.'),
  'review': ('review.html', 'Free case review', 'Five confidential minutes.'),
+ 'thank-you': ('thank-you.html', 'Thank you', ''),
 }
 def url(k): return PAGES[k][0]
 
@@ -185,7 +186,7 @@ def parse(p):
     meta = json.loads(mt.group(1)); body = s[mt.end():]
     return meta, body
 
-PHONE_PANEL = f'''<div class="panel" id="call-us"><p class="label ember">Free case review</p><h3>Call us for a free, confidential review.</h3><p class="hint">Tell Rob’s team what happened and we will tell you plainly whether you may have a claim, and what to do next. No obligation.</p><p style="margin-top:22px"><a class="btn btn-ember" href="{TEL}">Call {PHONE} <span class="arr">→</span></a></p><p class="hint" style="margin-top:18px"><small>Alarm sounding or feeling unwell? Leave the building now and call 911.</small></p></div>'''
+PHONE_PANEL = f'''<div class="panel" id="call-us"><p class="label ember">Free case review</p><h3>Call us for a free, confidential review.</h3><p class="hint">Tell Rob’s team what happened and we will tell you plainly whether you may have a claim, and what to do next. No obligation.</p><p style="margin-top:22px"><a class="btn btn-ember" href="{TEL}">Call {PHONE} <span class="arr">→</span></a></p><p style="margin-top:14px"><a href="review.html#case-form" style="color:var(--ember-deep);font-weight:600">Or fill in the case review form →</a></p><p class="hint" style="margin-top:18px"><small>Alarm sounding or feeling unwell? Leave the building now and call 911.</small></p></div>'''
 PHONE_CARD = f'''<div class="formcard rv"><h2>Call us</h2><p class="hint">The quickest way to reach Rob Aiers’ team is by phone. Free and confidential.</p><p style="margin-top:22px"><a class="btn btn-ember" href="{TEL}">Call {PHONE} <span class="arr">→</span></a></p></div>'''
 
 def live_copy(page):
@@ -211,6 +212,22 @@ def live_copy(page):
 
 BRAND = ' · Carbon Monoxide Kills'
 
+def case_form():
+    """The case review form (content/_case_form.html), posted to server/case-review.php."""
+    states = json.loads((ROOT / 'state_pages.json').read_text())
+    return (C / '_case_form.html').read_text().replace('{{STATE_OPTIONS}}', ''.join(f'<option>{esc(s)}</option>' for s in states))
+
+def with_case_form(key, main):
+    """Production only: the review page gets the form below the intro, the contact page instead of the concept form."""
+    if key == 'review':
+        return main.replace(related_marker(), f'<section class="caseform-sec"><div class="wrap">{case_form()}</div></section>\n' + related_marker(), 1)
+    if key == 'contact':
+        return re.sub(r'<form class="formcard enquiry rv" novalidate>.*?</form>', lambda m: case_form(), main, count=1, flags=re.S)
+    return main
+
+def related_marker():
+    return '<div class="related">'
+
 def render(key, mode):
     meta, body = parse(C / f'{key}.html')
     live = mode == 'live'
@@ -226,10 +243,11 @@ def render(key, mode):
     main += related(meta.get('related', [])) + band(meta)
     main = main.replace('<div class="slist" id="slist"></div>', f'<div class="slist" id="slist">{state_links(mode)}</div>')
     if live:
-        main = live_copy(main)
-    # dev/preview builds stay noindex; only the production build is indexable
-    seo_tags = seo.head_tags(path, title, desc, indexable=live, og_type='article' if key == 'article' else 'website')
-    if live:
+        main = live_copy(with_case_form(key, main))
+    # dev/preview builds stay noindex; in production only utility pages (thank-you) are
+    indexable = live and url(key) not in seo.NOINDEX_FILES
+    seo_tags = seo.head_tags(path, title, desc, indexable=indexable, og_type='article' if key == 'article' else 'website')
+    if indexable:
         seo_tags += '\n' + seo.json_ld(key, path, title, desc, meta, main, seo.last_modified(C / f'{key}.html'))
         seo_tags += ('\n' + seo.analytics_tags()) if seo.GA4_MEASUREMENT_ID else ''
     head = f'''<title>{esc(title)}</title>
@@ -289,9 +307,10 @@ def build():
         for key in keys:
             (out / url(key)).write_text(render(key, mode))
     live = ROOT / 'live'
-    entries = [('' if k == 'home' else url(k), seo.last_modified(C / f'{k}.html')) for k in keys]
+    entries = [('' if k == 'home' else url(k), seo.last_modified(C / f'{k}.html')) for k in keys if url(k) not in seo.NOINDEX_FILES]
     (live / seo.SITEMAP_FILE).write_text(seo.sitemap(entries))
     (live / 'robots.txt').write_text(seo.robots_txt())
+    shutil.copytree(ROOT / 'server', live, dirs_exist_ok=True)   # form handler + closed storage folder
     print('built', len(keys), 'pages')
 
 if __name__ == '__main__':
