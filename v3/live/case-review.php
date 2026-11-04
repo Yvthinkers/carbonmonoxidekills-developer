@@ -8,7 +8,7 @@
  */
 declare(strict_types=1);
 
-const RECIPIENT = '';                                   // team inbox; set before go-live
+const RECIPIENT = 'rob@carbonmonoxidekills.com';        // team inbox
 const SENDER = 'noreply@carbonmonoxidekills.com';       // must be on this domain or the host rejects it
 const FORM_PAGE = '/review.html';
 const THANKS_PAGE = '/thank-you.html';
