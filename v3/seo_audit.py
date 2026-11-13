@@ -134,17 +134,17 @@ def audit_forms(page, doc, build):
 
 
 def audit_live(build):
-    pages = sorted(build.glob('*.html'))
+    pages = sorted(build.rglob('*.html'))
     titles, descs, canons = {}, {}, {}
     report = []
     for p in pages:
-        doc, name = p.read_text(), p.name
+        doc, name = p.read_text(), str(p.relative_to(build))
         audit_forms(name, doc, build)
         if name in seo.NOINDEX_FILES:
             if 'content="noindex' not in doc:
                 err(name, 'utility page should be noindex')
             continue
-        expected = seo.abs_url('' if name == 'index.html' else name)
+        expected = seo.abs_url(re.sub(r'(^|/)index\.html$', r'\1', name))   # folder pages: .../texas/
         if not doc.startswith('<!doctype html>'):
             err(name, 'missing <!doctype html>')
         if f'<html lang="{seo.LANG}">' not in doc:
@@ -193,7 +193,7 @@ def audit_live(build):
             if not ('width="' in tag and 'height="' in tag):
                 err(name, f'<img {src}> has no width/height (layout shift)')
         for href in re.findall(r'href="([^"#?:]+\.html)', doc):
-            if not (build / href).exists():
+            if not (build / href.lstrip('/')).exists():
                 err(name, f'broken internal link {href}')
         levels = [int(x) for x in re.findall(r'<h([1-6])[\s>]', re.sub(r'<header class="site".*?</header>|<footer class="site".*?</footer>|<div class="drawer".*?</nav>', '', doc, flags=re.S))]
         for a, b in zip(levels, levels[1:]):
@@ -226,7 +226,7 @@ def audit_live(build):
 
 
 def audit_dev(build):
-    for p in sorted(build.glob('*.html')):
+    for p in sorted(build.rglob('*.html')):
         doc = p.read_text()
         if 'content="noindex, nofollow"' not in doc:
             err(f'dist/{p.name}', 'dev build page is indexable')

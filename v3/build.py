@@ -44,7 +44,21 @@ PAGES = {
  'review': ('review.html', 'Free case review', 'Five confidential minutes.'),
  'thank-you': ('thank-you.html', 'Thank you', ''),
 }
-def url(k): return PAGES[k][0]
+# State lawyer guides: content/states/<slug>.html, published at the state's existing WordPress URL
+# (state_pages.json) so the links and any ranking that URL has carry over. States without a guide stay on WordPress.
+STATE_URLS = json.loads((ROOT / 'state_pages.json').read_text())
+for _name, _u in STATE_URLS.items():
+    _slug = re.sub(r'[^a-z]+', '-', _name.lower()).strip('-')
+    if (C / 'states' / f'{_slug}.html').exists():
+        PAGES['state-' + _slug] = (urlsplit(_u).path.lstrip('/') + 'index.html', _name, f'Carbon monoxide lawyer in {_name}.')
+STATES = [k for k in PAGES if k.startswith('state-')]
+
+def url(k):
+    """Link to a page: the file name, or the folder from the site root for pages in a sub-folder."""
+    f = PAGES[k][0]
+    return '/' + f[:-len('index.html')] if '/' in f else f
+def page_path(k): return '' if k == 'home' else url(k).lstrip('/')
+def source(k): return C / 'states' / f'{k[len("state-"):]}.html' if k in STATES else C / f'{k}.html'
 
 MENU = [
  {'key': 'cases', 'label': 'Cases', 'title': 'Cases we handle', 'blurb': 'Responsibility depends on where it happened. Each setting has its own duties, rules and evidence.',
@@ -63,6 +77,7 @@ SECTION_OF = {k: 'cases' for k in ['cases', 'rented-homes', 'hotels', 'appliance
 SECTION_OF.update({k: 'learn' for k in ['facts', 'symptoms', 'detectors', 'advice', 'faq']})
 SECTION_OF.update({k: 'about-menu' for k in ['about', 'attorneys', 'medical', 'contact']})
 SECTION_OF.update({'lawyers': 'lawyers', 'news': 'news', 'article': 'news'})
+SECTION_OF.update({k: 'lawyers' for k in STATES})
 
 AC = ' aria-current="page"'
 CUR = ' class="cur"'
@@ -206,6 +221,7 @@ def live_copy(page):
         ('</a> or send a message. We usually reply the same day.', '</a>. We usually reply the same day.'),
         ('Your answers are reviewed against', 'Your case is reviewed against'),
         ('Tell us what happened</h3><p>', 'Tell us what happened</h3><p>'),
+        ('href="index.html"', 'href="/"'),   # /index.html redirects to /, so link to / directly
     ):
         page = page.replace(a, b)
     return page
@@ -228,10 +244,14 @@ def with_case_form(key, main):
 def related_marker():
     return '<div class="related">'
 
+def rooted(doc):
+    """Pages in a sub-folder: relative links and assets start from the site root instead."""
+    return re.sub(r'(\s(?:href|src)=")(?![a-z]+:|/|#)', r'\1/', doc)
+
 def render(key, mode):
-    meta, body = parse(C / f'{key}.html')
+    meta, body = parse(source(key))
     live = mode == 'live'
-    path = '' if key == 'home' else url(key)
+    path = page_path(key)
     title = meta['title']
     if key != 'home' and len(title + BRAND) <= 60:
         title += BRAND
@@ -248,7 +268,7 @@ def render(key, mode):
     indexable = live and url(key) not in seo.NOINDEX_FILES
     seo_tags = seo.head_tags(path, title, desc, indexable=indexable, og_type='article' if key == 'article' else 'website')
     if indexable:
-        seo_tags += '\n' + seo.json_ld(key, path, title, desc, meta, main, seo.last_modified(C / f'{key}.html'))
+        seo_tags += '\n' + seo.json_ld(key, path, title, desc, meta, main, seo.last_modified(source(key)))
         seo_tags += ('\n' + seo.analytics_tags()) if seo.GA4_MEASUREMENT_ID else ''
     head = f'''<title>{esc(title)}</title>
 <meta name="description" content="{esc(desc)}">
@@ -283,7 +303,8 @@ def render(key, mode):
 </body>
 </html>
 '''
-    return live_copy(doc) if live else doc
+    doc = live_copy(doc) if live else doc
+    return rooted(doc) if '/' in PAGES[key][0] else doc
 
 ASSETS = ['site.js', 'home.js', 'logo-dark.svg', 'logo.svg', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png',
           'icon-512.png', 'og-image.jpg', 'rob-duotone.jpg']
@@ -293,7 +314,7 @@ def build():
     css = '\n'.join(l for l in css.split('\n') if not l.startswith('nav.primary'))
     css = css.replace('@media (max-width:1180px){nav.primary{display:none}header.site .btn{margin-left:auto}}', '')
     css += (ROOT / 'assets/_nav.css').read_text()
-    keys = [k for k in PAGES if (C / f'{k}.html').exists()]
+    keys = [k for k in PAGES if source(k).exists()]
     for k in PAGES:
         if k not in keys:
             print('MISSING content for', k, file=sys.stderr)
@@ -305,9 +326,12 @@ def build():
         for f in ASSETS:
             shutil.copy(ROOT / 'assets' / f, out / 'assets' / f)
         for key in keys:
-            (out / url(key)).write_text(render(key, mode))
+            if mode == 'art' and key in STATES:   # the artifact is a single-folder preview
+                continue
+            (out / PAGES[key][0]).parent.mkdir(parents=True, exist_ok=True)
+            (out / PAGES[key][0]).write_text(render(key, mode))
     live = ROOT / 'live'
-    entries = [('' if k == 'home' else url(k), seo.last_modified(C / f'{k}.html')) for k in keys if url(k) not in seo.NOINDEX_FILES]
+    entries = [(page_path(k), seo.last_modified(source(k))) for k in keys if url(k) not in seo.NOINDEX_FILES]
     (live / seo.SITEMAP_FILE).write_text(seo.sitemap(entries))
     (live / 'robots.txt').write_text(seo.robots_txt())
     shutil.copytree(ROOT / 'server', live, dirs_exist_ok=True)   # form handler + closed storage folder

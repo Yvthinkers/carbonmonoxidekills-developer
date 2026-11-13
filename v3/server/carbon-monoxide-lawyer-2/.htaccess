@@ -1,0 +1,4 @@
+# State guides from the static build live in sub-folders here (texas/index.html, ...).
+# The folder itself and the states without a guide are still WordPress pages, so a folder
+# request with no index.html goes to WordPress instead of a 403.
+DirectoryIndex index.html /index.php
