@@ -95,3 +95,9 @@ $$('form.enquiry').forEach(f=>{const st=$('select[name=state]',f);if(st)st.inner
  const err=new URLSearchParams(location.search).get('error'),box=$('#cf-error',f);
  if(err&&msg[err]){box.textContent=msg[err];box.hidden=false}
  f.addEventListener('submit',e=>{if(!f.checkValidity()){e.preventDefault();f.reportValidity()}})})();
+/* News page: Rob's latest blog posts (/blog/, written in the blog editor). Stays hidden when there are none. */
+(()=>{const box=$('[data-blog-feed]');if(!box||!window.fetch)return;
+ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+ fetch('/blog/?feed=1').then(r=>r.ok?r.json():[]).then(ps=>{if(!Array.isArray(ps)||!ps.length)return;
+  box.innerHTML=ps.map(p=>`<a href="${esc(p.url)}"><span>${esc(p.date).toUpperCase()}</span><b>${esc(p.title)}</b><i aria-hidden="true">→</i></a>`).join('');
+  $('#blog-latest').hidden=false}).catch(()=>{})})();

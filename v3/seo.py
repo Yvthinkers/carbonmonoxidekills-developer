@@ -35,6 +35,8 @@ MEDICAL_PAGES = {'facts', 'symptoms'}
 # The older WordPress sitemap on the same domain (state lawyer pages, posts) stays live.
 WORDPRESS_SITEMAP = f'{SITE}/sitemap_index.xml'
 SITEMAP_FILE = 'sitemap-new.xml'
+# Rob's blog posts (server/blog/) list themselves here, as they are added from the blog editor
+BLOG_SITEMAP = 'blog/sitemap.xml'
 # Utility pages: noindex and left out of the sitemap
 NOINDEX_FILES = {'thank-you.html'}
 
@@ -232,4 +234,5 @@ def robots_txt():
             'Disallow: /wp-content/uploads/wpforms/\n'
             '\n'
             f'Sitemap: {abs_url(SITEMAP_FILE)}\n'
+            f'Sitemap: {abs_url(BLOG_SITEMAP)}\n'
             f'Sitemap: {WORDPRESS_SITEMAP}\n')

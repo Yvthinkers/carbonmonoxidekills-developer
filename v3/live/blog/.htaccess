@@ -1,0 +1,20 @@
+# Rob's blog (index.php = public pages, admin.php = editor). A RewriteEngine here replaces the root
+# .htaccess rules for this folder, so the https/www redirects are repeated and WordPress is left out.
+DirectoryIndex index.php
+<Files "_lib.php">
+Require all denied
+</Files>
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+RewriteRule ^ https://www.carbonmonoxidekills.com%{REQUEST_URI} [L,R=301]
+RewriteCond %{HTTP_HOST} !^www\.carbonmonoxidekills\.com$ [NC]
+RewriteRule ^ https://www.carbonmonoxidekills.com%{REQUEST_URI} [L,R=301]
+RewriteRule ^index\.php$ - [L]
+RewriteRule ^sitemap\.xml$ index.php?sitemap=1 [L]
+# /blog/<post-name>/ shows one post; without the closing slash it redirects to it
+RewriteRule ^([a-z0-9]+(?:-[a-z0-9]+)*)/$ index.php?post=$1 [L,QSA]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^([a-z0-9]+(?:-[a-z0-9]+)*)$ https://www.carbonmonoxidekills.com/blog/$1/ [L,R=301]
+</IfModule>

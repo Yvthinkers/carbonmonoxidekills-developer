@@ -36,6 +36,7 @@ PAGES = {
  'faq': ('faq.html', 'Questions & answers', 'Plain answers about claims, health and the process.'),
  'lawyers': ('lawyers.html', 'Find a lawyer', 'Partner attorneys in all 50 states and DC.'),
  'news': ('news.html', 'News & insights', 'Incidents and research, with Rob’s expert view.'),
+ 'blog': ('blog/index.html', 'Rob’s blog', 'Notes and warnings on carbon monoxide from Rob Aiers.'),
  'article': ('news-generator-safe-distance.html', '“Is this a safe distance?”', 'Generator safety after a power cut.'),
  'about': ('about.html', 'About Rob Aiers', 'The founder, and why this site exists.'),
  'attorneys': ('attorneys.html', 'For attorneys', 'Partner with us, or get expert help for a client.'),
@@ -52,6 +53,8 @@ for _name, _u in STATE_URLS.items():
     if (C / 'states' / f'{_slug}.html').exists():
         PAGES['state-' + _slug] = (urlsplit(_u).path.lstrip('/') + 'index.html', _name, f'Carbon monoxide lawyer in {_name}.')
 STATES = [k for k in PAGES if k.startswith('state-')]
+# Pages served by PHP (server/blog/): the build only renders their page shell, into cmk-private/blog-parts.json
+DYNAMIC = {'blog'}
 
 def url(k):
     """Link to a page: the file name, or the folder from the site root for pages in a sub-folder."""
@@ -76,7 +79,7 @@ MENU = [
 SECTION_OF = {k: 'cases' for k in ['cases', 'rented-homes', 'hotels', 'appliances', 'vehicles', 'workplace', 'wrongful-death']}
 SECTION_OF.update({k: 'learn' for k in ['facts', 'symptoms', 'detectors', 'advice', 'faq']})
 SECTION_OF.update({k: 'about-menu' for k in ['about', 'attorneys', 'medical', 'contact']})
-SECTION_OF.update({'lawyers': 'lawyers', 'news': 'news', 'article': 'news'})
+SECTION_OF.update({'lawyers': 'lawyers', 'news': 'news', 'article': 'news', 'blog': 'news'})
 SECTION_OF.update({k: 'lawyers' for k in STATES})
 
 AC = ' aria-current="page"'
@@ -133,7 +136,7 @@ def footer():
     <div><img class="cmk-logo" src="assets/logo-dark.svg" alt="Carbon Monoxide Kills" width="190" height="70" loading="lazy" decoding="async"><p class="big">The carbon monoxide injury specialists.</p><a class="mono" href="{TEL}" style="display:block;margin-top:22px;color:var(--on-ink)">{PHONE}</a></div>
     {col('Help', ['review', 'lawyers', 'contact', 'faq'])}
     {col('Cases', ['cases', 'rented-homes', 'hotels', 'appliances', 'vehicles', 'workplace', 'wrongful-death'])}
-    {col('Learn', ['facts', 'symptoms', 'detectors', 'advice', 'news'])}
+    {col('Learn', ['facts', 'symptoms', 'detectors', 'advice', 'news', 'blog'])}
     {col('About', ['about', 'attorneys', 'medical'])}
   </div>
   <div class="legal"><p>Carbon Monoxide Kills is not a law firm and does not give legal or medical advice. Completing a case review does not create an attorney–client relationship. Attorney advertising. Prior results do not guarantee a similar outcome.</p><p>In an emergency, leave the building and call 911.<br>© 2010–2026 CarbonMonoxideKills.com · Privacy · Terms<span class="concept" style="display:block">{CONCEPT}</span></p></div>
@@ -270,9 +273,12 @@ def render(key, mode):
     if indexable:
         seo_tags += '\n' + seo.json_ld(key, path, title, desc, meta, main, seo.last_modified(source(key)))
         seo_tags += ('\n' + seo.analytics_tags()) if seo.GA4_MEASUREMENT_ID else ''
-    head = f'''<title>{esc(title)}</title>
-<meta name="description" content="{esc(desc)}">
-{seo_tags}
+    seo_head = f'<title>{esc(title)}</title>\n<meta name="description" content="{esc(desc)}">\n{seo_tags}'
+    return shell(key, seo_head, main, mode)
+
+def shell(key, seo_head, main, mode):
+    """The document around a page's <main>: fonts, styles, icons, header, footer and scripts."""
+    head = f'''{seo_head}
 <meta name="theme-color" content="#0f1b2b">
 {seo.icon_tags()}
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -303,20 +309,26 @@ def render(key, mode):
 </body>
 </html>
 '''
-    doc = live_copy(doc) if live else doc
+    doc = live_copy(doc) if mode == 'live' else doc
     return rooted(doc) if '/' in PAGES[key][0] else doc
 
 ASSETS = ['site.js', 'home.js', 'logo-dark.svg', 'logo.svg', 'favicon.svg', 'favicon-32.png', 'apple-touch-icon.png',
           'icon-512.png', 'og-image.jpg', 'rob-duotone.jpg']
+
+def blog_parts():
+    """Page shell and shared blocks for the PHP blog, so it matches the rest of the site.
+    blog/index.php and blog/admin.php put their own head tags and content into {{HEAD}} and {{MAIN}}."""
+    fix = lambda s: rooted(live_copy(s))
+    return {'layout': shell('blog', '{{HEAD}}', '{{MAIN}}', 'live'), 'aside': fix(aside({})), 'band': fix(band({}))}
 
 def build():
     css = (ROOT / 'assets/_base.css').read_text()
     css = '\n'.join(l for l in css.split('\n') if not l.startswith('nav.primary'))
     css = css.replace('@media (max-width:1180px){nav.primary{display:none}header.site .btn{margin-left:auto}}', '')
     css += (ROOT / 'assets/_nav.css').read_text()
-    keys = [k for k in PAGES if source(k).exists()]
+    keys = [k for k in PAGES if k not in DYNAMIC and source(k).exists()]
     for k in PAGES:
-        if k not in keys:
+        if k not in keys and k not in DYNAMIC:
             print('MISSING content for', k, file=sys.stderr)
     for mode in ('dist', 'art', 'live'):
         out = ROOT / mode
@@ -334,7 +346,8 @@ def build():
     entries = [(page_path(k), seo.last_modified(source(k))) for k in keys if url(k) not in seo.NOINDEX_FILES]
     (live / seo.SITEMAP_FILE).write_text(seo.sitemap(entries))
     (live / 'robots.txt').write_text(seo.robots_txt())
-    shutil.copytree(ROOT / 'server', live, dirs_exist_ok=True)   # form handler + closed storage folder
+    shutil.copytree(ROOT / 'server', live, dirs_exist_ok=True)   # form handler, blog + closed storage folder
+    (live / 'cmk-private/blog-parts.json').write_text(json.dumps(blog_parts(), ensure_ascii=False))
     print('built', len(keys), 'pages')
 
 if __name__ == '__main__':
