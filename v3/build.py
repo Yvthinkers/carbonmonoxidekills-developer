@@ -244,6 +244,13 @@ def with_case_form(key, main):
         return re.sub(r'<form class="formcard enquiry rv" novalidate>.*?</form>', lambda m: case_form(), main, count=1, flags=re.S)
     return main
 
+def blog_state_block(state):
+    """State guides: Rob's blog posts about this state, filled in by site.js from /blog/?feed=1&state=...
+    Hidden until there is at least one."""
+    return (f'<section class="blog-state" data-blog-wrap hidden><div class="wrap"><p class="label ember">Rob’s blog · {esc(state)}</p>'
+            f'<h2 class="h-2" style="margin-top:16px">Latest from Rob about {esc(state)}</h2>'
+            f'<div class="archive" data-blog-feed="{esc(state)}"></div></div></section>')
+
 def related_marker():
     return '<div class="related">'
 
@@ -263,7 +270,7 @@ def render(key, mode):
         main = guide(meta, body)
     else:
         main = (phero(meta) if meta.get('hero') else '') + body
-    main += related(meta.get('related', [])) + band(meta)
+    main += related(meta.get('related', [])) + (blog_state_block(PAGES[key][1]) if key in STATES else '') + band(meta)
     main = main.replace('<div class="slist" id="slist"></div>', f'<div class="slist" id="slist">{state_links(mode)}</div>')
     if live:
         main = live_copy(with_case_form(key, main))
@@ -319,13 +326,15 @@ def blog_parts():
     """Page shell and shared blocks for the PHP blog, so it matches the rest of the site.
     blog/index.php and blog/admin.php put their own head tags and content into {{HEAD}} and {{MAIN}}."""
     fix = lambda s: rooted(live_copy(s))
-    return {'layout': shell('blog', '{{HEAD}}', '{{MAIN}}', 'live'), 'aside': fix(aside({})), 'band': fix(band({}))}
+    return {'layout': shell('blog', '{{HEAD}}', '{{MAIN}}', 'live'), 'aside': fix(aside({})), 'band': fix(band({})),
+            'states': {name: urlsplit(u).path for name, u in STATE_URLS.items()}}
 
 def build():
     css = (ROOT / 'assets/_base.css').read_text()
     css = '\n'.join(l for l in css.split('\n') if not l.startswith('nav.primary'))
     css = css.replace('@media (max-width:1180px){nav.primary{display:none}header.site .btn{margin-left:auto}}', '')
     css += (ROOT / 'assets/_nav.css').read_text()
+    css += (ROOT / 'assets/_blog.css').read_text()
     keys = [k for k in PAGES if k not in DYNAMIC and source(k).exists()]
     for k in PAGES:
         if k not in keys and k not in DYNAMIC:

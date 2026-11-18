@@ -551,3 +551,20 @@ footer.site .cmk-logo{width:190px;margin-bottom:26px}
 footer.site .concept{color:var(--on-ink-3);font-size:12px;margin-top:10px}
 @media (max-width:1100px){footer.site .top{grid-template-columns:1fr 1fr 1fr}footer.site .top>div:first-child{grid-column:1/-1}}
 @media (max-width:640px){footer.site .top{grid-template-columns:1fr 1fr}}
+
+/* Rob's blog (server/blog/): photos, videos, share links, state box, and blog posts on other pages */
+.card .cimg{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;background:var(--line)}
+.bcover{margin:0 0 36px}
+.bcover img,.bimg img{display:block;width:100%;height:auto}
+.bimg{margin:36px 0}
+.bimg figcaption{font-size:14px;line-height:1.5;color:var(--text-3);margin-top:10px}
+.bvideo{position:relative;aspect-ratio:16/9;margin:36px 0;background:#000}
+.bvideo iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.bstate{margin-top:44px}
+.bstate a{color:var(--ember-deep);font-weight:600}
+.share{display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center;margin-top:44px;padding-top:22px;border-top:1px solid var(--line)}
+.share .label{width:100%}
+.share a,.share button{font:600 14.5px/1 var(--sans);color:var(--ember-deep);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.bpreview{background:var(--ember);color:#fff;text-align:center;padding:12px 16px;font-weight:600}
+.bpreview a{color:#fff}
+.blog-state .wrap{padding-block:80px 10px}

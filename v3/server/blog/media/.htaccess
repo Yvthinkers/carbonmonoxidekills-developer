@@ -1,0 +1,9 @@
+# Photos uploaded in the blog editor (admin.php saves them as <yyyymm>-<random>.jpg).
+# Only those files are served from here; anything else, a script included, gets 403.
+Require all denied
+<FilesMatch "^[0-9]{6}-[0-9a-f]{10}\.jpg$">
+Require all granted
+</FilesMatch>
+<IfModule mod_headers.c>
+Header set Cache-Control "public, max-age=31536000, immutable"
+</IfModule>

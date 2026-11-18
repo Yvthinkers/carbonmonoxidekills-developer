@@ -95,9 +95,20 @@ $$('form.enquiry').forEach(f=>{const st=$('select[name=state]',f);if(st)st.inner
  const err=new URLSearchParams(location.search).get('error'),box=$('#cf-error',f);
  if(err&&msg[err]){box.textContent=msg[err];box.hidden=false}
  f.addEventListener('submit',e=>{if(!f.checkValidity()){e.preventDefault();f.reportValidity()}})})();
-/* News page: Rob's latest blog posts (/blog/, written in the blog editor). Stays hidden when there are none. */
-(()=>{const box=$('[data-blog-feed]');if(!box||!window.fetch)return;
+/* Rob's blog (/blog/, written in the blog editor): latest posts on the News page and the state guides
+   ([data-blog-feed="<state>"], hidden until there is a post), and on the home page in place of the oldest news cards. */
+(()=>{if(!window.fetch)return;
  const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
- fetch('/blog/?feed=1').then(r=>r.ok?r.json():[]).then(ps=>{if(!Array.isArray(ps)||!ps.length)return;
+ const feed=st=>fetch('/blog/?feed=1'+(st?'&state='+encodeURIComponent(st):'')).then(r=>r.ok?r.json():[]).then(ps=>Array.isArray(ps)?ps:[]).catch(()=>[]);
+ $$('[data-blog-feed]').forEach(box=>feed(box.dataset.blogFeed).then(ps=>{if(!ps.length)return;
   box.innerHTML=ps.map(p=>`<a href="${esc(p.url)}"><span>${esc(p.date).toUpperCase()}</span><b>${esc(p.title)}</b><i aria-hidden="true">→</i></a>`).join('');
-  $('#blog-latest').hidden=false}).catch(()=>{})})();
+  const w=box.closest('[data-blog-wrap]');if(w)w.hidden=false}));
+ const cards=$('#insights .cards');
+ if(cards)feed('').then(ps=>{if(!ps.length)return;const old=$$('.card',cards);const n=Math.min(ps.length,old.length);
+  ps.slice(0,n).forEach((p,i)=>{const a=document.createElement('a');a.className='card';a.href=p.url;
+   a.innerHTML=(p.image?`<img class="cimg" src="${esc(p.image)}" alt="${esc(p.image_alt)}" loading="lazy">`:'')+`<span class="meta">${esc(p.date).toUpperCase()} · ${esc(p.state||'Rob’s blog').toUpperCase()}</span><h3>${esc(p.title)}</h3><p>${esc(p.excerpt)}</p>`;
+   cards.insertBefore(a,cards.children[i]||null)});
+  old.slice(old.length-n).forEach(c=>c.replaceWith())})})();
+/* Blog posts: "Copy link" */
+$$('[data-copy]').forEach(b=>b.addEventListener('click',()=>{const done=()=>{b.textContent='Link copied'};
+ if(navigator.clipboard)navigator.clipboard.writeText(b.dataset.copy).then(done,()=>prompt('Copy this link:',b.dataset.copy));else prompt('Copy this link:',b.dataset.copy)}));

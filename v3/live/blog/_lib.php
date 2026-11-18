@@ -1,10 +1,14 @@
 <?php
 /*
- * Shared code for Rob's blog: post storage, text formatting and the page shell.
+ * Shared code for Rob's blog: post storage, text formatting, photos and the page shell.
  *
  * Posts live in cmk-private/blog/posts.json (closed to the web, never part of a deploy), so a site
- * update can't overwrite them. The page shell (header, footer, styles) comes from the static build:
- * build.py writes it to cmk-private/blog-parts.json, so the blog always matches the rest of the site.
+ * update can't overwrite them. Photos Rob uploads go to blog/media/. The page shell (header, footer,
+ * styles) and the state list come from the static build: build.py writes cmk-private/blog-parts.json,
+ * so the blog always matches the rest of the site.
+ *
+ * A post: id, slug, title, body, status (published|draft), state, cover, cover_alt, meta_desc,
+ *         created (first published), updated. Fields added later are optional, so older posts keep working.
  */
 declare(strict_types=1);
 
@@ -20,12 +24,19 @@ const BLOG_DIR = PRIVATE_DIR . '/blog';
 const POSTS_FILE = BLOG_DIR . '/posts.json';
 const PARTS_FILE = PRIVATE_DIR . '/blog-parts.json';
 const AUTH_FILE = PRIVATE_DIR . '/blog-auth.php';
+const MEDIA_DIR = __DIR__ . '/media';
+const MEDIA_URL = '/blog/media/';
+const MEDIA_RE = '~^(?:https://www\.carbonmonoxidekills\.com)?/blog/media/([0-9]{6}-[0-9a-f]{10}\.jpg)$~';
+const YOUTUBE_RE = '~^https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?(?:\S*&)?v=|shorts/|embed/|live/)|youtu\.be/)([A-Za-z0-9_-]{11})(?:[?&#]\S*)?$~';
+const RESERVED_SLUGS = ['media', 'admin', 'sitemap', 'index'];
 const OG_IMAGE = SITE . '/assets/og-image.jpg';
 const OG_IMAGE_ALT = 'Carbon Monoxide Kills: carbon monoxide lawyer help in all 50 states, call 1-888-414-8680';
 const FOUNDER_ID = SITE . '/about.html#rob-aiers';
 const ORG_ID = SITE . '/#organization';
 const TITLE_MAX = 120;
 const BODY_MAX = 60000;
+const DESC_MAX = 200;
+const SESSION_HOURS = 12;
 
 function e(string $s): string
 {
@@ -44,7 +55,12 @@ function len(string $s): int
 
 // ---------- storage ----------
 
-/** All posts, newest first. */
+function is_published(array $p): bool
+{
+    return ($p['status'] ?? 'published') === 'published';
+}
+
+/** All posts (drafts too), newest first. */
 function load_posts(): array
 {
     $raw = is_file(POSTS_FILE) ? (string) file_get_contents(POSTS_FILE) : '';
@@ -55,6 +71,12 @@ function load_posts(): array
     }
     usort($posts, fn($a, $b) => strcmp($b['created'], $a['created']));
     return $posts;
+}
+
+/** What visitors see: published posts only. */
+function public_posts(?array $posts = null): array
+{
+    return array_values(array_filter($posts ?? load_posts(), 'is_published'));
 }
 
 function find_post(array $posts, string $field, string $value): ?array
@@ -114,14 +136,40 @@ function slugify(string $title): string
     return $s !== '' ? $s : 'post';
 }
 
-function unique_slug(string $slug, array $posts): string
+/** $slug, or $slug-2, -3 ... if another post (not $selfId) already has it. */
+function unique_slug(string $slug, array $posts, string $selfId = ''): string
 {
-    $taken = array_column($posts, 'slug');
+    $taken = array_merge(RESERVED_SLUGS, array_column(array_filter($posts, fn($p) => $p['id'] !== $selfId), 'slug'));
     $try = $slug;
     for ($n = 2; in_array($try, $taken, true); $n++) {
         $try = "$slug-$n";
     }
     return $try;
+}
+
+// ---------- states ----------
+
+/** State name => path of its "carbon monoxide lawyer in <state>" page (a state guide or the WordPress page). */
+function states(): array
+{
+    return parts()['states'] ?? [];
+}
+
+// ---------- photos ----------
+
+/** [url, width, height] of an uploaded photo given as its /blog/media/ address, or null. */
+function media(string $url): ?array
+{
+    if (!preg_match(MEDIA_RE, trim($url), $m) || !is_file(MEDIA_DIR . '/' . $m[1])) {
+        return null;
+    }
+    $size = @getimagesize(MEDIA_DIR . '/' . $m[1]);
+    return [MEDIA_URL . $m[1], (int) ($size[0] ?? 1600), (int) ($size[1] ?? 900)];
+}
+
+function img_tag(array $m, string $alt, string $extra = ''): string
+{
+    return '<img src="' . e($m[0]) . '" width="' . $m[1] . '" height="' . $m[2] . '" alt="' . e($alt) . '"' . $extra . '>';
 }
 
 // ---------- text ----------
@@ -140,8 +188,10 @@ function inline(string $text): string
 }
 
 /** Plain text, as Rob types it, to article HTML. Returns [html, [[id, heading], ...]].
- *  Empty line = new paragraph · "## " = subheading · "- " = bullet point · **word** = bold */
-function render_body(string $text): array
+ *  Empty line = new paragraph · "## " = subheading · "- " = bullet point · **word** = bold
+ *  A photo address on its own (from "Add a photo") = the photo; lines under it = its caption
+ *  A YouTube link on its own line = the video */
+function render_body(string $text, string $title = ''): array
 {
     $html = '';
     $toc = [];
@@ -163,6 +213,17 @@ function render_body(string $text): array
             $html .= '<h2 id="' . e($id) . '">' . inline($heading) . "</h2>\n";
             continue;
         }
+        if ($m = media($lines[0])) {
+            $caption = implode(' ', array_slice($lines, 1));
+            $html .= '<figure class="bimg">' . img_tag($m, $caption !== '' ? plain($caption) : $title, ' loading="lazy" decoding="async"')
+                . ($caption !== '' ? '<figcaption>' . inline($caption) . '</figcaption>' : '') . "</figure>\n";
+            continue;
+        }
+        if (count($lines) === 1 && preg_match(YOUTUBE_RE, $lines[0], $yt)) {
+            $html .= '<figure class="bvideo"><iframe src="https://www.youtube-nocookie.com/embed/' . $yt[1] . '" title="' . e($title !== '' ? $title . ' (video)' : 'YouTube video')
+                . '" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></figure>' . "\n";
+            continue;
+        }
         $bullets = array_filter($lines, fn($l) => preg_match('/^[-*•] /u', $l));
         if (count($bullets) === count($lines)) {
             $html .= '<ul class="plain">' . implode('', array_map(fn($l) => '<li>' . inline(trim((string) preg_replace('/^[-*•] /u', '', $l))) . '</li>', $lines)) . "</ul>\n";
@@ -174,24 +235,39 @@ function render_body(string $text): array
     return [$html, $toc];
 }
 
-/** Plain text of a post for summaries: formatting marks removed. */
+/** Plain text of a post for summaries: subheadings, photos, videos and formatting marks removed. */
 function plain(string $text): string
 {
-    $t = (string) preg_replace('/^(## |[-*•] )/mu', '', $text);
+    $keep = [];
+    foreach (explode("\n", str_replace(["\r\n", "\r"], "\n", $text)) as $l) {
+        $l = trim($l);
+        if (str_starts_with($l, '## ') || preg_match(MEDIA_RE, $l) || preg_match(YOUTUBE_RE, $l)) {
+            continue;
+        }
+        $keep[] = $l;
+    }
+    $t = (string) preg_replace('/^[-*•] /mu', '', implode("\n", $keep));
     $t = str_replace('**', '', $t);
     return trim((string) preg_replace('/\s+/u', ' ', $t));
 }
 
-/** Search-result description: the opening words of the post, up to $max characters, cut at a word. */
+/** The opening words of the post, up to $max characters, cut at a word. */
 function excerpt(string $body, int $max = 155): string
 {
-    $t = plain((string) preg_replace('/^## .*$/mu', '', $body));   // subheadings don't read well in a summary
+    $t = plain($body);
     if (len($t) <= $max) {
         return $t;
     }
     $t = cut($t, $max);
     $sp = strrpos($t, ' ');
     return rtrim($sp ? substr($t, 0, $sp) : $t, " ,.;:-") . '…';
+}
+
+/** Search-result description: Rob's own Google description, or the opening words. */
+function post_desc(array $p): string
+{
+    $d = trim($p['meta_desc'] ?? '');
+    return $d !== '' ? $d : excerpt($p['body']);
 }
 
 function read_minutes(string $body): int
@@ -209,6 +285,33 @@ function post_url(array $p): string
     return '/blog/' . $p['slug'] . '/';
 }
 
+/** Cover photo [url, width, height] or null. */
+function cover(array $p): ?array
+{
+    return ($p['cover'] ?? '') !== '' ? media($p['cover']) : null;
+}
+
+// ---------- admin session (editor, and previews of drafts) ----------
+
+function admin_session(): bool
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        $dir = BLOG_DIR . '/sessions';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0700, true);
+        }
+        if (is_dir($dir) && is_writable($dir)) {
+            session_save_path($dir);   // our own folder, so the host's cleanup doesn't log Rob out mid-post
+        }
+        ini_set('session.gc_maxlifetime', (string) (SESSION_HOURS * 3600));
+        ini_set('session.use_strict_mode', '1');
+        session_name('cmkblog');
+        session_set_cookie_params(['lifetime' => 0, 'path' => '/blog/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+        session_start();
+    }
+    return ($_SESSION['ok'] ?? false) === true && time() - (int) ($_SESSION['since'] ?? 0) < SESSION_HOURS * 3600;
+}
+
 // ---------- page ----------
 
 function parts(): array
@@ -218,19 +321,21 @@ function parts(): array
         $parts = json_decode((string) @file_get_contents(PARTS_FILE), true);
         if (!is_array($parts) || !isset($parts['layout'])) {
             error_log('blog: ' . PARTS_FILE . ' missing, run build.py and deploy it');
-            $parts = ['layout' => '<!doctype html><html lang="en-US"><head><meta charset="utf-8">{{HEAD}}</head><body><main>{{MAIN}}</main></body></html>', 'aside' => '', 'band' => ''];
+            $parts = ['layout' => '<!doctype html><html lang="en-US"><head><meta charset="utf-8">{{HEAD}}</head><body><main>{{MAIN}}</main></body></html>', 'aside' => '', 'band' => '', 'states' => []];
         }
     }
     return $parts;
 }
 
-/** <title>, description, robots, canonical, Open Graph and Twitter tags (same set as seo.py head_tags). */
-function head_tags(string $title, string $desc, string $path, bool $indexable, string $ogType = 'website', string $extra = ''): string
+/** <title>, description, robots, canonical, Open Graph and Twitter tags (same set as seo.py head_tags).
+ *  $image: [absolute url, width, height, alt] or null for the site's share image. */
+function head_tags(string $title, string $desc, string $path, bool $indexable, string $ogType = 'website', string $extra = '', ?array $image = null): string
 {
     $t = '<title>' . e($title) . "</title>\n<meta name=\"description\" content=\"" . e($desc) . "\">\n";
     if (!$indexable) {
         return $t . '<meta name="robots" content="noindex, nofollow">' . $extra;
     }
+    [$img, $w, $h, $alt] = $image ?? [OG_IMAGE, 1200, 630, OG_IMAGE_ALT];
     $url = e(SITE . $path);
     $tags = [
         '<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">',
@@ -241,15 +346,15 @@ function head_tags(string $title, string $desc, string $path, bool $indexable, s
         "<meta property=\"og:url\" content=\"$url\">",
         '<meta property="og:title" content="' . e($title) . '">',
         '<meta property="og:description" content="' . e($desc) . '">',
-        '<meta property="og:image" content="' . OG_IMAGE . '">',
-        '<meta property="og:image:width" content="1200">',
-        '<meta property="og:image:height" content="630">',
-        '<meta property="og:image:alt" content="' . e(OG_IMAGE_ALT) . '">',
+        '<meta property="og:image" content="' . e($img) . '">',
+        '<meta property="og:image:width" content="' . $w . '">',
+        '<meta property="og:image:height" content="' . $h . '">',
+        '<meta property="og:image:alt" content="' . e($alt) . '">',
         '<meta name="twitter:card" content="summary_large_image">',
         '<meta name="twitter:title" content="' . e($title) . '">',
         '<meta name="twitter:description" content="' . e($desc) . '">',
-        '<meta name="twitter:image" content="' . OG_IMAGE . '">',
-        '<meta name="twitter:image:alt" content="' . e(OG_IMAGE_ALT) . '">',
+        '<meta name="twitter:image" content="' . e($img) . '">',
+        '<meta name="twitter:image:alt" content="' . e($alt) . '">',
     ];
     return $t . implode("\n", $tags) . $extra;
 }

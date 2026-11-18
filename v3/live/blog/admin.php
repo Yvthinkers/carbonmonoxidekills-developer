@@ -1,62 +1,33 @@
 <?php
 /*
  * Blog editor for Rob: log in with the password, press "New post", type a title and the text, publish.
- * Posts can be edited or deleted later. Password hash: cmk-private/blog-auth.php (not in git, not in deploys):
+ * Also: cover photo and photos in the text, YouTube videos, a state tag, a Google description, drafts
+ * and previews, edit and delete. Behaviour in the browser: admin.js; styles: admin.css.
+ * Password hash: cmk-private/blog-auth.php (not in git, not in deploys):
  *   <?php return ['hash' => '<password_hash() output>'];
  */
 declare(strict_types=1);
 require __DIR__ . '/_lib.php';
 
-const SESSION_HOURS = 12;
-const MAX_FAILS = 8;            // wrong passwords per IP address in 15 minutes
+const MAX_FAILS = 8;               // wrong passwords per IP address in 15 minutes
 const SELF = '/blog/admin.php';
-
-const ADMIN_CSS = '<style>
-.blog-admin{padding-block:56px 100px}.blog-admin .wrap{max-width:920px}
-.ba-bar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:28px}
-.ba-bar h2{font:400 30px/1.1 var(--serif)}
-.ba-note{border-left:3px solid var(--ember);background:var(--ember-soft);padding:14px 18px;margin:0 0 26px;color:var(--text)}
-.ba-note a{color:var(--ember-deep);font-weight:600}
-.ba-list{list-style:none;padding:0;margin:0;border-top:1px solid var(--line)}
-.ba-list li{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;padding:18px 0;border-bottom:1px solid var(--line)}
-.ba-list b{display:block;font:400 21px/1.25 var(--serif);font-weight:400}
-.ba-list small{color:var(--text-3);font:500 12.5px/1 var(--mono)}
-.ba-acts{display:flex;gap:18px;align-items:center}
-.ba-acts a,.ba-acts button{font:600 14.5px/1 var(--sans);color:var(--ember-deep);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
-.ba-acts button.del{color:var(--danger)}
-.blog-admin .field{display:grid;gap:10px;margin-bottom:24px}
-.blog-admin .field textarea{min-height:460px;font-size:17px;line-height:1.65}
-.ba-count{color:var(--text-3);font-size:13px}
-.ba-help{color:var(--text-2);font-size:14.5px;border:1px solid var(--line);padding:16px 20px;margin:0 0 24px}
-.ba-help ul{margin:8px 0 0;padding-left:20px}.ba-help code{font:500 13.5px var(--mono);background:var(--ember-soft);padding:1px 5px}
-.ba-empty{padding:40px 0;color:var(--text-2)}
-</style>';
+const UPLOAD_MAX = 25 * 1024 * 1024;
+const PHOTO_WIDTH = 1600;          // photos are stored at most this wide, as JPEG
 
 header('X-Robots-Tag: noindex, nofollow');
 header('Cache-Control: no-store');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: same-origin');
 
-// Sessions in our own closed folder, so the host's cleanup doesn't log Rob out while he is writing.
-$sessions = BLOG_DIR . '/sessions';
-if (!is_dir($sessions)) {
-    @mkdir($sessions, 0700, true);
-}
-if (is_dir($sessions) && is_writable($sessions)) {
-    session_save_path($sessions);
-}
-ini_set('session.gc_maxlifetime', (string) (SESSION_HOURS * 3600));
-ini_set('session.use_strict_mode', '1');
-session_name('cmkblog');
-session_set_cookie_params(['lifetime' => 0, 'path' => '/blog/', 'secure' => true, 'httponly' => true, 'samesite' => 'Strict']);
-session_start();
+$loggedIn = admin_session();
 $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
-
-$loggedIn = ($_SESSION['ok'] ?? false) === true && time() - (int) ($_SESSION['since'] ?? 0) < SESSION_HOURS * 3600;
 $post = $_SERVER['REQUEST_METHOD'] === 'POST';
 $do = $post && is_string($_POST['do'] ?? null) ? $_POST['do'] : '';
 $tokenOk = $post && hash_equals($_SESSION['csrf'], is_string($_POST['csrf'] ?? null) ? $_POST['csrf'] : '');
 
+if ($do === 'upload' && (!$tokenOk || !$loggedIn)) {
+    json_out(['error' => 'You were logged out. Save your post as a draft, log in again and add the photo.'], 403);
+}
 if ($post && !$tokenOk) {
     login_page($do === 'save' ? 'You were logged out, so the post was not saved yet. Your text is kept in this browser: log in and open the post again.' : 'Please log in again.');
 }
@@ -71,11 +42,15 @@ try {
     match ($do) {
         'save' => do_save(),
         'delete' => do_delete(),
+        'upload' => do_upload(),
         'logout' => do_logout(),
         default => null,
     };
 } catch (Throwable $ex) {
     error_log('blog admin: ' . $ex->getMessage());
+    if ($do === 'upload') {
+        json_out(['error' => 'The photo could not be saved. Please try a different photo.'], 500);
+    }
     dashboard('Sorry, something went wrong and nothing was changed. Please try again, or send this to your web developer: ' . $ex->getMessage());
 }
 
@@ -93,6 +68,14 @@ dashboard();
 function go(string $query = ''): never
 {
     header('Location: ' . SELF . ($query !== '' ? '?' . $query : ''), true, 303);
+    exit;
+}
+
+function json_out(array $data, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -135,7 +118,7 @@ function do_logout(): never
 {
     $_SESSION = [];
     session_destroy();
-    setcookie('cmkblog', '', ['expires' => 1, 'path' => '/blog/', 'secure' => true, 'httponly' => true, 'samesite' => 'Strict']);
+    setcookie('cmkblog', '', ['expires' => 1, 'path' => '/blog/', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
     go();
 }
 
@@ -145,44 +128,66 @@ function field(string $key): string
     return trim(str_replace(["\r\n", "\r"], "\n", (string) preg_replace('/[\x00-\x09\x0B-\x1F\x7F]+/u', ' ', $v)));
 }
 
+function one_line(string $key): string
+{
+    return (string) preg_replace('/\s+/u', ' ', field($key));
+}
+
 function do_save(): never
 {
     $id = field('id');
-    $title = (string) preg_replace('/\s+/u', ' ', field('title'));
-    $body = field('body');
-    $draft = ['id' => $id, 'title' => $title, 'body' => $body];
-    if (len($title) < 5) {
-        editor($draft, 'Please give the post a title (at least 5 characters).');
+    $publish = field('status') !== 'draft';
+    $state = one_line('state');
+    $cover = one_line('cover');
+    $d = [
+        'id' => $id, 'title' => one_line('title'), 'body' => field('body'), 'status' => $publish ? 'published' : 'draft',
+        'state' => isset(states()[$state]) ? $state : '', 'cover' => media($cover) ? $cover : '',
+        'cover_alt' => cut(one_line('cover_alt'), 200), 'meta_desc' => cut(one_line('meta_desc'), DESC_MAX),
+    ];
+    if (len($d['title']) < 5) {
+        editor($d, 'Please give the post a title (at least 5 characters).');
     }
-    if (len($title) > TITLE_MAX) {
-        editor($draft, 'The title is too long. Please keep it under ' . TITLE_MAX . ' characters.');
+    if (len($d['title']) > TITLE_MAX) {
+        editor($d, 'The title is too long. Please keep it under ' . TITLE_MAX . ' characters.');
     }
-    if (str_word_count(plain($body)) < 20) {
-        editor($draft, 'The description is very short. Please write at least a few sentences (20 words or more).');
+    if ($publish && str_word_count(plain($d['body'])) < 20) {
+        editor($d, 'The description is very short. Please write at least a few sentences (20 words or more), or save it as a draft for now.');
     }
-    if (len($body) > BODY_MAX) {
-        editor($draft, 'The description is too long for one post. Please split it into two posts.');
+    if (len($d['body']) > BODY_MAX) {
+        editor($d, 'The description is too long for one post. Please split it into two posts.');
     }
     $savedId = $id;
-    update_posts(function (array $posts) use ($id, $title, $body, &$savedId) {
+    update_posts(function (array $posts) use ($d, $id, &$savedId) {
         $now = gmdate('c');
+        $fields = ['title', 'body', 'status', 'state', 'cover', 'cover_alt', 'meta_desc'];
         if ($id !== '') {
             foreach ($posts as &$p) {
-                if ($p['id'] === $id) {
-                    $p['title'] = $title;
-                    $p['body'] = $body;
-                    $p['updated'] = $now;
-                    return $posts;
+                if ($p['id'] !== $id) {
+                    continue;
                 }
+                $wasPublished = is_published($p);
+                foreach ($fields as $f) {
+                    $p[$f] = $d[$f];
+                }
+                if (!$wasPublished) {
+                    // Not public yet: the address still follows the title, and the date is the day it goes live.
+                    $p['slug'] = unique_slug(slugify($d['title']), $posts, $id);
+                    $p['created'] = $now;
+                }
+                $p['updated'] = $now;
+                return $posts;
             }
             throw new RuntimeException('post ' . $id . ' no longer exists');
         }
         $savedId = bin2hex(random_bytes(6));
-        $posts[] = ['id' => $savedId, 'slug' => unique_slug(slugify($title), $posts), 'title' => $title, 'body' => $body,
-            'created' => $now, 'updated' => $now];
+        $new = ['id' => $savedId, 'slug' => unique_slug(slugify($d['title']), $posts)];
+        foreach ($fields as $f) {
+            $new[$f] = $d[$f];
+        }
+        $posts[] = $new + ['created' => $now, 'updated' => $now];
         return $posts;
     });
-    go('saved=' . rawurlencode($savedId));
+    go(($publish ? 'saved=' : 'drafted=') . rawurlencode($savedId));
 }
 
 function do_delete(): never
@@ -192,15 +197,70 @@ function do_delete(): never
     go('deleted=1');
 }
 
+/** A photo from the editor: checked, turned upright, resized, saved as a fresh JPEG (location and camera data dropped). */
+function do_upload(): never
+{
+    $f = $_FILES['photo'] ?? null;
+    if (!is_array($f) || ($f['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+        json_out(['error' => 'The photo did not arrive. Please try again.'], 400);
+    }
+    if ($f['size'] > UPLOAD_MAX) {
+        json_out(['error' => 'That photo is too big (over 25 MB).'], 400);
+    }
+    $info = @getimagesize($f['tmp_name']);
+    $type = $info[2] ?? 0;
+    if (!in_array($type, [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
+        json_out(['error' => 'Please choose a JPEG, PNG or WebP photo.'], 400);
+    }
+    [$w, $h] = $info;
+    if ($w < 200 || $h < 120 || $w * $h > 30_000_000) {
+        json_out(['error' => $w < 200 ? 'That photo is too small. Please use one at least 800 pixels wide.' : 'That photo is too large. Please use a smaller one.'], 400);
+    }
+    @ini_set('memory_limit', '256M');
+    $src = match ($type) {
+        IMAGETYPE_JPEG => @imagecreatefromjpeg($f['tmp_name']),
+        IMAGETYPE_PNG => @imagecreatefrompng($f['tmp_name']),
+        IMAGETYPE_WEBP => @imagecreatefromwebp($f['tmp_name']),
+    };
+    if (!$src) {
+        json_out(['error' => 'That photo could not be read. Please try a different one.'], 400);
+    }
+    if ($type === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+        $o = (int) (@exif_read_data($f['tmp_name'])['Orientation'] ?? 1);
+        $angle = [3 => 180, 6 => -90, 8 => 90][$o] ?? 0;
+        if ($angle) {
+            $src = imagerotate($src, $angle, 0);
+            [$w, $h] = [imagesx($src), imagesy($src)];
+        }
+    }
+    $nw = min($w, PHOTO_WIDTH);
+    $nh = (int) round($h * $nw / $w);
+    $dst = imagecreatetruecolor($nw, $nh);
+    imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));   // transparent PNGs on white
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+    imageinterlace($dst, true);
+    if (!is_dir(MEDIA_DIR) && !mkdir(MEDIA_DIR, 0755, true) && !is_dir(MEDIA_DIR)) {
+        throw new RuntimeException('cannot create ' . MEDIA_DIR);
+    }
+    $name = gmdate('Ym') . '-' . bin2hex(random_bytes(5)) . '.jpg';
+    if (!imagejpeg($dst, MEDIA_DIR . '/' . $name, 84)) {
+        throw new RuntimeException('cannot write photo');
+    }
+    imagedestroy($src);
+    imagedestroy($dst);
+    json_out(['url' => MEDIA_URL . $name, 'width' => $nw, 'height' => $nh]);
+}
+
 // ---------- pages ----------
 
-
-function admin_page(string $title, string $h1, string $content, string $script = ''): never
+function admin_page(string $title, string $h1, string $content, bool $js = false): never
 {
+    $v = '?v=' . @filemtime(__DIR__ . '/admin.js');
     page(
-        head_tags($title . ' · Rob’s blog', 'Blog editor', '/blog/admin.php', false, 'website', "\n" . ADMIN_CSS),
+        head_tags($title . ' · Rob’s blog', 'Blog editor', '/blog/admin.php', false, 'website', "\n" . '<link rel="stylesheet" href="/blog/admin.css' . $v . '">'),
         hero([['Blog', '/blog/'], ['Editor', null]], 'Blog editor', $h1)
-        . '<section class="blog-admin"><div class="wrap">' . $content . '</div></section>' . $script
+        . '<section class="blog-admin"><div class="wrap">' . $content . '</div></section>'
+        . ($js ? '<script src="/blog/admin.js' . $v . '" defer></script>' : '')
     );
     exit;
 }
@@ -230,59 +290,87 @@ function dashboard(string $error = ''): never
     $msg = '';
     if (is_string($_GET['saved'] ?? null) && ($p = find_post($posts, 'id', $_GET['saved']))) {
         $msg = 'Published. <a href="' . e(post_url($p)) . '" target="_blank" rel="noopener">See it on the website →</a>';
+    } elseif (is_string($_GET['drafted'] ?? null) && ($p = find_post($posts, 'id', $_GET['drafted']))) {
+        $msg = 'Saved as a draft. It is not on the website yet. <a href="/blog/?preview=' . e($p['id']) . '" target="_blank" rel="noopener">Preview it →</a>';
     } elseif (isset($_GET['deleted'])) {
         $msg = 'The post was deleted.';
     }
     $rows = '';
     foreach ($posts as $p) {
-        $rows .= '<li><div><b>' . e($p['title']) . '</b><small>' . strtoupper(e(nice_date($p['created']))) . '</small></div><div class="ba-acts">'
-            . '<a href="' . e(post_url($p)) . '" target="_blank" rel="noopener">View</a>'
+        $pub = is_published($p);
+        $tags = ($pub ? '' : '<em class="ba-tag">Draft</em>') . (($p['state'] ?? '') !== '' ? '<em class="ba-tag st">' . e($p['state']) . '</em>' : '');
+        $rows .= '<li>' . (($c = cover($p)) ? img_tag($c, '', ' class="ba-thumb" loading="lazy"') : '<span class="ba-thumb"></span>')
+            . '<div class="ba-t"><b>' . e($p['title']) . '</b><small>' . ($pub ? strtoupper(e(nice_date($p['created']))) : 'LAST SAVED ' . strtoupper(e(nice_date($p['updated'])))) . $tags . '</small></div><div class="ba-acts">'
+            . ($pub ? '<a href="' . e(post_url($p)) . '" target="_blank" rel="noopener">View</a>' : '<a href="/blog/?preview=' . e($p['id']) . '" target="_blank" rel="noopener">Preview</a>')
             . '<a href="' . SELF . '?edit=' . e($p['id']) . '">Edit</a>'
             . '<form method="post" action="' . SELF . '" data-confirm="Delete “' . e($p['title']) . '”? This cannot be undone.">' . token()
             . '<input type="hidden" name="do" value="delete"><input type="hidden" name="id" value="' . e($p['id']) . '"><button class="del" type="submit">Delete</button></form>'
             . '</div></li>';
     }
-    $saved = is_string($_GET['saved'] ?? null) ? $_GET['saved'] : '';
+    $done = $_GET['saved'] ?? $_GET['drafted'] ?? '';
+    $count = count(public_posts($posts));
+    $drafts = count($posts) - $count;
     admin_page('Your posts', 'Your blog posts.', note(e($error), true) . note($msg)
-        . '<div class="ba-bar"><h2>' . count($posts) . ' post' . (count($posts) === 1 ? '' : 's') . '</h2>'
+        . '<div class="ba-bar"><h2>' . $count . ' published' . ($drafts ? ' · ' . $drafts . ' draft' . ($drafts === 1 ? '' : 's') : '') . '</h2>'
         . '<a class="btn btn-ember" href="' . SELF . '?new=1">+ New post</a></div>'
         . ($rows ? '<ul class="ba-list">' . $rows . '</ul>' : '<p class="ba-empty">No posts yet. Press <b>+ New post</b> to write the first one.</p>')
         . '<form method="post" action="' . SELF . '" style="margin-top:48px">' . token() . '<input type="hidden" name="do" value="logout">'
-        . '<button class="btn btn-line" type="submit">Log out</button></form>',
-        '<script>
-document.querySelectorAll("form[data-confirm]").forEach(f=>f.addEventListener("submit",e=>{if(!confirm(f.dataset.confirm))e.preventDefault()}));
-' . ($saved !== '' ? 'try{localStorage.removeItem("cmkblog-draft-new");localStorage.removeItem(' . json_encode('cmkblog-draft-' . $saved) . ')}catch(e){}' : '') . '
-</script>');
+        . '<button class="btn btn-line" type="submit">Log out</button></form>'
+        . '<div id="ba-dash" data-done="' . e(is_string($done) ? $done : '') . '" hidden></div>', true);
 }
 
 function editor(?array $p, string $error = ''): never
 {
     $isNew = $p === null || ($p['id'] ?? '') === '';
     $id = $p['id'] ?? '';
-    admin_page($isNew ? 'New post' : 'Edit post', $isNew ? 'Write a new post.' : 'Edit your post.', note(e($error), true)
-        . '<form class="formcard" method="post" action="' . SELF . '" id="ba-form" data-draft="cmkblog-draft-' . e($isNew ? 'new' : $id) . '" style="max-width:none">' . token()
+    $stored = $isNew ? null : find_post(load_posts(), 'id', $id);
+    $live = $stored && is_published($stored);
+    $cover = media($p['cover'] ?? '');
+    $opts = '<option value="">No particular state</option>';
+    foreach (array_keys(states()) as $s) {
+        $opts .= '<option' . (($p['state'] ?? '') === $s ? ' selected' : '') . '>' . e($s) . '</option>';
+    }
+    $slug = $stored['slug'] ?? '';
+    admin_page($isNew ? 'New post' : 'Edit post', $isNew ? 'Write a new post.' : ($live ? 'Edit your post.' : 'Edit your draft.'), note(e($error), true)
+        . '<form class="formcard" method="post" action="' . SELF . '" id="ba-form" data-draft="cmkblog-draft-' . e($isNew ? 'new' : $id) . '"'
+        . ' data-slug="' . e($live ? $slug : '') . '" style="max-width:none">' . token()
         . '<input type="hidden" name="do" value="save"><input type="hidden" name="id" value="' . e($id) . '">'
         . '<p class="ba-note" id="ba-restored" hidden>We brought back text you hadn’t saved yet. <a href="#" id="ba-discard">Discard it</a></p>'
+
         . '<div class="field"><label for="ba-title">Title</label><input id="ba-title" name="title" required minlength="5" maxlength="' . TITLE_MAX . '" value="' . e($p['title'] ?? '') . '" placeholder="For example: Why your furnace needs a check before winter"><span class="ba-count" id="ba-tcount"></span></div>'
-        . '<div class="field"><label for="ba-body">Description</label><textarea id="ba-body" name="body" required maxlength="' . BODY_MAX . '" placeholder="Write your post here.">' . e($p['body'] ?? '') . '</textarea></div>'
-        . '<div class="ba-help"><b>Formatting (optional)</b><ul>'
+
+        . '<div class="field"><span class="flabel">Cover photo <i>(optional, shown at the top and when the post is shared)</i></span>'
+        . '<div class="ba-cover" id="ba-cover">' . ($cover ? img_tag($cover, '', ' id="ba-cover-img"') : '<img id="ba-cover-img" alt="" hidden>')
+        . '<div class="ba-cover-acts"><button type="button" class="btn btn-line" id="ba-cover-pick">' . ($cover ? 'Change photo' : 'Choose a photo') . '</button>'
+        . '<button type="button" class="ba-link" id="ba-cover-remove"' . ($cover ? '' : ' hidden') . '>Remove</button><span class="ba-count" id="ba-cover-msg"></span></div></div>'
+        . '<input type="hidden" name="cover" id="ba-cover-url" value="' . e($cover[0] ?? '') . '">'
+        . '<input type="file" id="ba-file" accept="image/jpeg,image/png,image/webp,image/*" hidden>'
+        . '<label for="ba-alt" class="ba-sub">Describe the photo in a few words (for Google and for blind readers)</label>'
+        . '<input id="ba-alt" name="cover_alt" maxlength="200" value="' . e($p['cover_alt'] ?? '') . '" placeholder="For example: Firefighters outside a house with a carbon monoxide detector"></div>'
+
+        . '<div class="field"><label for="ba-body">Description</label>'
+        . '<div class="ba-tools"><button type="button" class="btn btn-line" id="ba-add-photo">+ Add a photo here</button><button type="button" class="btn btn-line" id="ba-add-video">+ Add a YouTube video</button><span class="ba-count" id="ba-body-msg"></span></div>'
+        . '<textarea id="ba-body" name="body" required maxlength="' . BODY_MAX . '" placeholder="Write your post here.">' . e($p['body'] ?? '') . '</textarea>'
+        . '<span class="ba-count" id="ba-words"></span></div>'
+        . '<details class="ba-help"><summary>Formatting help (optional)</summary><ul>'
         . '<li>Leave an empty line between paragraphs.</li>'
         . '<li>Start a line with <code>## </code> for a subheading.</li>'
         . '<li>Start lines with <code>- </code> for a list of points.</li>'
         . '<li>Put <code>**two stars**</code> around words to make them <b>bold</b>.</li>'
-        . '<li>Web addresses such as https://www.cdc.gov become links.</li></ul></div>'
-        . '<div class="ba-bar" style="margin:0"><a href="' . SELF . '">Cancel</a>'
-        . '<button class="btn btn-ember" type="submit">' . ($isNew ? 'Publish' : 'Save changes') . ' <span class="arr">→</span></button></div></form>',
-        '<script>
-(()=>{const f=document.getElementById("ba-form"),t=document.getElementById("ba-title"),b=document.getElementById("ba-body"),key=f.dataset.draft,c=document.getElementById("ba-tcount");
- const count=()=>{const n=t.value.trim().length;c.textContent=n+" characters"+(n>60?" · Google shows about 60, so the end may be cut off in search results":"")};
- t.addEventListener("input",count);count();
- try{const d=JSON.parse(localStorage.getItem(key)||"null");
-  if(d&&(d.title!==t.value||d.body!==b.value)&&(d.title||d.body)){const old={title:t.value,body:b.value};t.value=d.title;b.value=d.body;count();
-   const r=document.getElementById("ba-restored");r.hidden=false;
-   document.getElementById("ba-discard").onclick=e=>{e.preventDefault();t.value=old.title;b.value=old.body;count();r.hidden=true;localStorage.removeItem(key)}}}catch(e){}
- let timer;const keep=()=>{clearTimeout(timer);timer=setTimeout(()=>{try{localStorage.setItem(key,JSON.stringify({title:t.value,body:b.value}))}catch(e){}},400)};
- t.addEventListener("input",keep);b.addEventListener("input",keep);
-})();
-</script>');
+        . '<li>Web addresses such as https://www.cdc.gov become links.</li>'
+        . '<li><b>Add a photo here</b> puts a photo where the cursor is. Type a caption on the line under its address.</li>'
+        . '<li><b>Add a YouTube video</b> asks for the video’s link and shows the video in the post.</li></ul></details>'
+
+        . '<div class="fgrid ba-grid"><div class="field"><label for="ba-state">Which state is this about?</label><select id="ba-state" name="state">' . $opts . '</select>'
+        . '<span class="ba-count">The post links to that state’s lawyer page, and shows up on it.</span></div>'
+        . '<div class="field"><label for="ba-desc">Google description <i>(optional)</i></label><textarea id="ba-desc" name="meta_desc" maxlength="' . DESC_MAX . '" rows="3" placeholder="Leave empty to use the start of the post.">' . e($p['meta_desc'] ?? '') . '</textarea>'
+        . '<span class="ba-count" id="ba-dcount"></span></div></div>'
+
+        . '<div class="ba-seo"><div><span class="flabel">How it may look on Google</span><div class="ba-serp"><span class="u" id="ba-serp-url"></span><b id="ba-serp-title"></b><span id="ba-serp-desc"></span></div></div>'
+        . '<div><span class="flabel">Search checklist</span><ul class="ba-checks" id="ba-checks"></ul></div></div>'
+
+        . '<div class="ba-bar ba-foot"><a href="' . SELF . '">Cancel</a><span>'
+        . ($stored ? '<a href="/blog/?preview=' . e($id) . '" target="_blank" rel="noopener">Preview' . ($live ? '' : ' last saved draft') . '</a>' : '')
+        . '<button class="btn btn-line" type="submit" name="status" value="draft">' . ($live ? 'Unpublish (save as draft)' : 'Save as draft') . '</button>'
+        . '<button class="btn btn-ember" type="submit" name="status" value="published">' . ($live ? 'Save changes' : 'Publish') . ' <span class="arr">→</span></button></span></div></form>', true);
 }
