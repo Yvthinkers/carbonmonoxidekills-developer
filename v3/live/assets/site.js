@@ -112,3 +112,6 @@ $$('form.enquiry').forEach(f=>{const st=$('select[name=state]',f);if(st)st.inner
 /* Blog posts: "Copy link" */
 $$('[data-copy]').forEach(b=>b.addEventListener('click',()=>{const done=()=>{b.textContent='Link copied'};
  if(navigator.clipboard)navigator.clipboard.writeText(b.dataset.copy).then(done,()=>prompt('Copy this link:',b.dataset.copy));else prompt('Copy this link:',b.dataset.copy)}));
+/* Phone buttons: count presses (call-click.php stores only the time and the page, nothing about the visitor) */
+document.addEventListener('click',e=>{const a=e.target.closest&&e.target.closest('a[href^="tel:"]');if(!a||!navigator.sendBeacon)return;
+ try{navigator.sendBeacon('/call-click.php',new Blob([location.pathname],{type:'text/plain'}))}catch(err){}},{capture:true});

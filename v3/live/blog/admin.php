@@ -310,13 +310,39 @@ function dashboard(string $error = ''): never
     $done = $_GET['saved'] ?? $_GET['drafted'] ?? '';
     $count = count(public_posts($posts));
     $drafts = count($posts) - $count;
-    admin_page('Your posts', 'Your blog posts.', note(e($error), true) . note($msg)
+    admin_page('Your posts', 'Your blog posts.', note(e($error), true) . note($msg) . call_stats()
         . '<div class="ba-bar"><h2>' . $count . ' published' . ($drafts ? ' · ' . $drafts . ' draft' . ($drafts === 1 ? '' : 's') : '') . '</h2>'
         . '<a class="btn btn-ember" href="' . SELF . '?new=1">+ New post</a></div>'
         . ($rows ? '<ul class="ba-list">' . $rows . '</ul>' : '<p class="ba-empty">No posts yet. Press <b>+ New post</b> to write the first one.</p>')
         . '<form method="post" action="' . SELF . '" style="margin-top:48px">' . token() . '<input type="hidden" name="do" value="logout">'
         . '<button class="btn btn-line" type="submit">Log out</button></form>'
         . '<div id="ba-dash" data-done="' . e(is_string($done) ? $done : '') . '" hidden></div>', true);
+}
+
+/** Presses on the website's phone buttons (logged by /call-click.php): last 7 and 30 days, and the top pages. */
+function call_stats(): string
+{
+    $dir = PRIVATE_DIR . '/calls';
+    $since7 = gmdate('c', time() - 7 * 86400);
+    $since30 = gmdate('c', time() - 30 * 86400);
+    $n7 = $n30 = 0;
+    $pages = [];
+    foreach ([gmdate('Y-m'), gmdate('Y-m', strtotime('first day of last month'))] as $m) {
+        $f = "$dir/$m.jsonl";
+        foreach (is_file($f) ? file($f, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] : [] as $line) {
+            $r = json_decode($line, true);
+            if (!is_array($r) || ($r['t'] ?? '') < $since30) {
+                continue;
+            }
+            $n30++;
+            $n7 += $r['t'] >= $since7 ? 1 : 0;
+            $pages[$r['page']] = ($pages[$r['page']] ?? 0) + 1;
+        }
+    }
+    arsort($pages);
+    $top = implode(', ', array_map(fn($p, $n) => e($p) . ' (' . $n . ')', array_keys(array_slice($pages, 0, 3, true)), array_slice($pages, 0, 3, true)));
+    return '<p class="ba-note">Phone button presses on the website: <b>' . $n7 . '</b> in the last 7 days, <b>' . $n30 . '</b> in the last 30 days.'
+        . ($top !== '' ? ' Most from: ' . $top . '.' : '') . '</p>';
 }
 
 function editor(?array $p, string $error = ''): never
