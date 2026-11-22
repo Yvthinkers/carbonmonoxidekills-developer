@@ -19,19 +19,25 @@ OUT = Path.home() / 'cmk-rebrand-backups/indexing' / datetime.date.today().isofo
 DONE = re.compile(r'Indexing requested|Quota exceeded|Indexing request rejected|Something went wrong', re.I)
 
 
-def inspect_url(u):
-    return ('https://search.google.com/search-console/inspect?resource_id=' + urllib.parse.quote(PROPERTY, safe='')
-            + '&id=' + urllib.parse.quote(u, safe=''))
+HOME = 'https://search.google.com/search-console?resource_id=' + urllib.parse.quote(PROPERTY, safe='')
 
 
 def main(urls):
     OUT.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp('http://127.0.0.1:9222')
-        page = browser.contexts[0].new_page()
+        ctx = browser.contexts[0]
+        # Use the visible Search Console tab: Chrome does not render background tabs.
+        page = next((x for x in ctx.pages if 'search.google.com' in x.url), None) or ctx.new_page()
+        page.bring_to_front()
         for n, u in enumerate(urls, 1):
             name = re.sub(r'[^a-z0-9]+', '-', u.split('.com', 1)[1].lower()).strip('-') or 'home'
-            page.goto(inspect_url(u), wait_until='domcontentloaded')
+            page.goto(HOME, wait_until='domcontentloaded')
+            box = page.locator('input[aria-label^="Inspect any URL"]').first
+            box.wait_for(timeout=60000)
+            box.click()
+            box.fill(u)
+            box.press('Enter')
             try:
                 page.get_by_text(re.compile(r'^\s*URL is ', re.I)).first.wait_for(timeout=90000)
             except PWTimeout:
@@ -46,12 +52,15 @@ def main(urls):
                 page.screenshot(path=str(OUT / f'{n:02d}-{name}-no-button.png'))
                 print(f'{u} | {status} | no Request indexing button')
                 continue
-            try:
-                result = page.get_by_text(DONE).first
-                result.wait_for(timeout=240000)   # Google first runs a live test, which takes 1-2 minutes
-                text = result.inner_text().strip()
-            except PWTimeout:
-                text = 'no answer within 4 minutes'
+            # Google first runs a live test (1-2 minutes), then shows the outcome in a dialog. Read the visible
+            # page text rather than waiting on one element: hidden copies of these messages exist in the page.
+            text = 'no answer within 4 minutes'
+            for _ in range(80):
+                page.wait_for_timeout(3000)
+                m = DONE.search(page.inner_text('body'))
+                if m:
+                    text = m.group(0)
+                    break
             page.screenshot(path=str(OUT / f'{n:02d}-{name}.png'))
             print(f'{u} | was: {status} | {text}', flush=True)
             for label in ('Got it', 'Dismiss', 'Close'):
@@ -62,7 +71,7 @@ def main(urls):
             if 'quota' in text.lower():
                 print('Daily quota reached; continue tomorrow.')
                 break
-        page.close()
+
 
 
 if __name__ == '__main__':
